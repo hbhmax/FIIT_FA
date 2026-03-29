@@ -6,8 +6,7 @@ namespace TreeDataStructures.Implementations.Treap;
 public class Treap<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, TreapNode<TKey, TValue>>
     where TKey : IComparable<TKey>
 {
-    protected override TreapNode<TKey, TValue> CreateNode(TKey key, TValue value)
-        => new(key, value) { Priority = Random.Shared.Next() };
+    protected override TreapNode<TKey, TValue> CreateNode(TKey key, TValue value) => new(key, value) { Priority = Random.Shared.Next() };
 
     public override void Add(TKey key, TValue value)
     {

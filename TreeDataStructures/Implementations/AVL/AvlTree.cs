@@ -38,31 +38,7 @@ public class AvlTree<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, AvlNode<
         UpdateHeight(y.Parent!);
     }
 
-    private int BalanceFactor(AvlNode<TKey, TValue> node) =>
-        GetHeight(node.Left) - GetHeight(node.Right);
-
-    private AvlNode<TKey, TValue>? Balance(AvlNode<TKey, TValue> node)
-    {
-        UpdateHeight(node);
-        int bf = BalanceFactor(node);
-
-        if (bf > 1)
-        {
-            if (BalanceFactor(node.Left!) < 0)
-                RotateBigLeft(node);
-            else
-                RotateRight(node);
-        }
-        else if (bf < -1)
-        {
-            if (BalanceFactor(node.Right!) > 0)
-                RotateBigRight(node);
-            else
-                RotateLeft(node);
-        }
-
-        return node.Parent;
-    }
+    private int BalanceFactor(AvlNode<TKey, TValue> node) => GetHeight(node.Left) - GetHeight(node.Right);
 
     private void BalanceFromNode(AvlNode<TKey, TValue>? node)
     {
