@@ -6,7 +6,7 @@ namespace TreeDataStructures.Implementations.Treap;
 public class Treap<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, TreapNode<TKey, TValue>>
     where TKey : IComparable<TKey>
 {
-    protected override TreapNode<TKey, TValue> CreateNode(TKey key, TValue value) => new(key, value) { Priority = Random.Shared.Next() };
+    protected override TreapNode<TKey, TValue> CreateNode(TKey key, TValue value) => new TreapNode<TKey, TValue>(key, value) { Priority = Random.Shared.Next() };
 
     public override void Add(TKey key, TValue value)
     {
@@ -40,7 +40,20 @@ public class Treap<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, TreapNode<
         return true;
     }
 
-    protected virtual (TreapNode<TKey, TValue>? Left, TreapNode<TKey, TValue>? Right) Split(TreapNode<TKey, TValue>? root, TKey key)
+    protected (TreapNode<TKey, TValue>? Left, TreapNode<TKey, TValue>? Right) Split(TreapNode<TKey, TValue>? root, TKey key) 
+    /* 
+    Разделяет на поддеревья в котором с одной стороны все узлы < key, а с другой > key
+    Функция находит место key в листьях (самом нижнем узле) и отцеляет все что больше его к правому поддереву, все что ниже к левому
+
+           9                           9                           9                                 9                
+         /   \                       /   \                       /   \                             /  \              
+        3     10                    3     10                    3     10                    3     7    10            
+      /  \               ->       /  \               ->       / |                ->       /  \     \  
+     2   7                       2    7                      2  |   7                    2    5     8            
+        / \                            \                        |    \                                     
+       5   8                        5   8                       5     8                                
+
+    */
     {
         if (root == null) return (null, null);
 
@@ -62,7 +75,7 @@ public class Treap<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, TreapNode<
         }
     }
 
-    protected virtual TreapNode<TKey, TValue>? Merge(TreapNode<TKey, TValue>? left, TreapNode<TKey, TValue>? right)
+    protected TreapNode<TKey, TValue>? Merge(TreapNode<TKey, TValue>? left, TreapNode<TKey, TValue>? right) // Любые ключи в левом поддереве < любых ключей в правом
     {
         if (left == null) return right;
         if (right == null) return left;

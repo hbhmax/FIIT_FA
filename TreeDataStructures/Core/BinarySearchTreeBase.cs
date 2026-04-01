@@ -259,7 +259,7 @@ public abstract class BinarySearchTreeBase<TKey, TValue, TNode>(IComparer<TKey>?
             while (node != null)
             {
                 _nodeStack.Push(node);
-                node = node.Left;
+                node = node.Left!;
             }
         }
 
@@ -268,7 +268,7 @@ public abstract class BinarySearchTreeBase<TKey, TValue, TNode>(IComparer<TKey>?
             while (node != null)
             {
                 _nodeStack.Push(node);
-                node = node.Right;
+                node = node.Right!;
             }
         }
 

@@ -6,7 +6,7 @@ namespace TreeDataStructures.Implementations.Splay;
 public class SplayTree<TKey, TValue> : BinarySearchTree<TKey, TValue>
     where TKey : IComparable<TKey>
 {
-    protected override BstNode<TKey, TValue> CreateNode(TKey key, TValue value) => new(key, value);
+    protected override BstNode<TKey, TValue> CreateNode(TKey key, TValue value) => new BstNode<TKey, TValue>(key, value);
 
     public override bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TValue value)
     {
