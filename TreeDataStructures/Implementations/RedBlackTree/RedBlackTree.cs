@@ -13,8 +13,6 @@ public class RedBlackTree<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, RbN
         FixAfterInsert(newNode);
     }
 
-    protected override void OnNodeRemoved(RbNode<TKey, TValue>? parent, RbNode<TKey, TValue>? child) { }
-
     private void FixAfterInsert(RbNode<TKey, TValue> node)
     {
         while (node != Root && node.Parent!.Color == RbColor.Red)
@@ -65,5 +63,95 @@ public class RedBlackTree<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, RbN
             }
         }
         Root!.Color = RbColor.Black;
+    }
+
+    protected override void OnNodeRemoved(RbNode<TKey, TValue>? parent, RbNode<TKey, TValue>? child)
+    {
+        if (GetColor(child) == RbColor.Red)
+        {
+            SetColor(child, RbColor.Black);
+            return;
+        }
+        FixAfterDelete(child, parent);
+    }
+
+    private void FixAfterDelete(RbNode<TKey, TValue>? x, RbNode<TKey, TValue>? parent)
+    {
+        while (x != Root && GetColor(x) == RbColor.Black)
+        {
+            if (x == parent?.Left)
+            {
+                var w = parent.Right;
+                if (GetColor(w) == RbColor.Red)
+                {
+                    SetColor(w, RbColor.Black);
+                    SetColor(parent, RbColor.Red);
+                    RotateLeft(parent);
+                    w = parent.Right;
+                }
+
+                if (GetColor(w?.Left) == RbColor.Black && GetColor(w?.Right) == RbColor.Black)
+                {
+                    SetColor(w, RbColor.Red);
+                    x = parent;
+                    parent = x?.Parent;
+                }
+                else
+                {
+                    if (GetColor(w?.Right) == RbColor.Black)
+                    {
+                        SetColor(w?.Left, RbColor.Black);
+                        SetColor(w, RbColor.Red);
+                        RotateRight(w);
+                        w = parent.Right;
+                    }
+                    SetColor(w, GetColor(parent));
+                    SetColor(parent, RbColor.Black);
+                    SetColor(w?.Right, RbColor.Black);
+                    RotateLeft(parent);
+                    x = Root;
+                }
+            }
+            else
+            {
+                var w = parent.Left;
+                if (GetColor(w) == RbColor.Red)
+                {
+                    SetColor(w, RbColor.Black);
+                    SetColor(parent, RbColor.Red);
+                    RotateRight(parent);
+                    w = parent.Left;
+                }
+                if (GetColor(w?.Right) == RbColor.Black && GetColor(w?.Left) == RbColor.Black)
+                {
+                    SetColor(w, RbColor.Red);
+                    x = parent;
+                    parent = x?.Parent;
+                }
+                else
+                {
+                    if (GetColor(w?.Left) == RbColor.Black)
+                    {
+                        SetColor(w?.Right, RbColor.Black);
+                        SetColor(w, RbColor.Red);
+                        RotateLeft(w);
+                        w = parent.Left;
+                    }
+                    SetColor(w, GetColor(parent));
+                    SetColor(parent, RbColor.Black);
+                    SetColor(w?.Left, RbColor.Black);
+                    RotateRight(parent);
+                    x = Root;
+                }
+            }
+        }
+        SetColor(x, RbColor.Black);
+    }
+
+    private static RbColor GetColor(RbNode<TKey, TValue>? node) => node?.Color ?? RbColor.Black;
+
+    private static void SetColor(RbNode<TKey, TValue>? node, RbColor color)
+    {
+        if (node != null) node.Color = color;
     }
 }
