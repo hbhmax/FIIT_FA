@@ -5,153 +5,211 @@ namespace TreeDataStructures.Implementations.RedBlackTree;
 public class RedBlackTree<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, RbNode<TKey, TValue>>
     where TKey : IComparable<TKey>
 {
-    protected override RbNode<TKey, TValue> CreateNode(TKey key, TValue value) => new RbNode<TKey, TValue>(key, value);
+    private RbColor? _deletedNodeColor;
+
+    protected override RbNode<TKey, TValue> CreateNode(TKey key, TValue value) => new(key, value);
+
+    private static RbNode<TKey, TValue>? Grandparent(RbNode<TKey, TValue>? node)
+        => node?.Parent?.Parent;
+
+    private static RbNode<TKey, TValue>? Uncle(RbNode<TKey, TValue> node)
+    {
+        if (node.Parent == null) return null;
+        return node.Parent.IsLeftChild ? Grandparent(node)?.Right : Grandparent(node)?.Left;
+    }
+
+    private static RbNode<TKey, TValue>? Sibling(RbNode<TKey, TValue> parent, RbNode<TKey, TValue>? child)
+        => parent.Left == child ? parent.Right : parent.Left;
 
     protected override void OnNodeAdded(RbNode<TKey, TValue> newNode)
     {
         newNode.Color = RbColor.Red;
-        FixAfterInsert(newNode);
+        InsertCase1(newNode);
     }
 
-    private void FixAfterInsert(RbNode<TKey, TValue> node)
+    private void InsertCase1(RbNode<TKey, TValue> node)
     {
-        while (node != Root && node.Parent!.Color == RbColor.Red)
+        if (node.Parent == null)
+            node.Color = RbColor.Black;
+        else
+            InsertCase2(node);
+    }
+
+    private void InsertCase2(RbNode<TKey, TValue> node)
+    {
+        if (node.Parent!.Color == RbColor.Red)
+            InsertCase3(node);
+    }
+
+    private void InsertCase3(RbNode<TKey, TValue> node)
+    {
+        var uncle = Uncle(node);
+        if (uncle != null && uncle.Color == RbColor.Red)
         {
-            if (node.Parent == node.Parent.Parent?.Left)
-            {
-                var uncle = node.Parent.Parent.Right;
-                if (uncle != null && uncle.Color == RbColor.Red)
-                {
-                    node.Parent.Color = RbColor.Black;
-                    uncle.Color = RbColor.Black;
-                    node.Parent.Parent.Color = RbColor.Red;
-                    node = node.Parent.Parent;
-                }
-                else
-                {
-                    if (node == node.Parent.Right)
-                    {
-                        node = node.Parent;
-                        RotateLeft(node);
-                    }
-                    node.Parent!.Color = RbColor.Black;
-                    node.Parent.Parent!.Color = RbColor.Red;
-                    RotateRight(node.Parent.Parent);
-                }
-            }
-            else
-            {
-                var uncle = node.Parent.Parent?.Left;
-                if (uncle != null && uncle.Color == RbColor.Red)
-                {
-                    node.Parent.Color = RbColor.Black;
-                    uncle.Color = RbColor.Black;
-                    node.Parent.Parent!.Color = RbColor.Red;
-                    node = node.Parent.Parent;
-                }
-                else
-                {
-                    if (node == node.Parent.Left)
-                    {
-                        node = node.Parent;
-                        RotateRight(node);
-                    }
-                    node.Parent!.Color = RbColor.Black;
-                    node.Parent.Parent!.Color = RbColor.Red;
-                    RotateLeft(node.Parent.Parent);
-                }
-            }
+            node.Parent!.Color = RbColor.Black;
+            uncle.Color = RbColor.Black;
+            var grandparent = Grandparent(node);
+            grandparent!.Color = RbColor.Red;
+            InsertCase1(grandparent);
         }
-        Root!.Color = RbColor.Black;
+        else
+        {
+            InsertCase4(node);
+        }
+    }
+
+    private void InsertCase4(RbNode<TKey, TValue> node)
+    {
+        var parent = node.Parent!;
+        if (node.IsRightChild && parent.IsLeftChild)
+        {
+            RotateLeft(parent);
+            node = parent;
+        }
+        else if (node.IsLeftChild && parent.IsRightChild)
+        {
+            RotateRight(parent);
+            node = parent;
+        }
+        InsertCase5(node);
+    }
+
+    private void InsertCase5(RbNode<TKey, TValue> node)
+    {
+        var parent = node.Parent!;
+        var grandparent = parent.Parent!;
+        parent.Color = RbColor.Black;
+        grandparent.Color = RbColor.Red;
+        if (node.IsLeftChild && parent.IsLeftChild)
+            RotateRight(grandparent);
+        else
+            RotateLeft(grandparent);
+    }
+
+    protected override void RemoveNode(RbNode<TKey, TValue> node)
+    {
+        _deletedNodeColor = node.Color;
+        base.RemoveNode(node);
     }
 
     protected override void OnNodeRemoved(RbNode<TKey, TValue>? parent, RbNode<TKey, TValue>? child)
     {
+        if (_deletedNodeColor == RbColor.Red)
+        {
+            _deletedNodeColor = null;
+            return;
+        }
+
+        _deletedNodeColor = null;
+
         if (GetColor(child) == RbColor.Red)
         {
             SetColor(child, RbColor.Black);
             return;
         }
-        FixAfterDelete(child, parent);
+
+        RemoveCase1(parent, child);
     }
 
-    private void FixAfterDelete(RbNode<TKey, TValue>? x, RbNode<TKey, TValue>? parent)
+    private void RemoveCase1(RbNode<TKey, TValue>? parent, RbNode<TKey, TValue>? child)
     {
-        while (x != Root && GetColor(x) == RbColor.Black)
-        {
-            if (x == parent?.Left)
-            {
-                var w = parent.Right;
-                if (GetColor(w) == RbColor.Red)
-                {
-                    SetColor(w, RbColor.Black);
-                    SetColor(parent, RbColor.Red);
-                    RotateLeft(parent);
-                    w = parent.Right;
-                }
+        if (parent != null)
+            RemoveCase2(parent, child);
+    }
 
-                if (GetColor(w?.Left) == RbColor.Black && GetColor(w?.Right) == RbColor.Black)
-                {
-                    SetColor(w, RbColor.Red);
-                    x = parent;
-                    parent = x?.Parent;
-                }
-                else
-                {
-                    if (GetColor(w?.Right) == RbColor.Black)
-                    {
-                        SetColor(w?.Left, RbColor.Black);
-                        SetColor(w, RbColor.Red);
-                        RotateRight(w);
-                        w = parent.Right;
-                    }
-                    SetColor(w, GetColor(parent));
-                    SetColor(parent, RbColor.Black);
-                    SetColor(w?.Right, RbColor.Black);
-                    RotateLeft(parent);
-                    x = Root;
-                }
-            }
+    private void RemoveCase2(RbNode<TKey, TValue> parent, RbNode<TKey, TValue>? child)
+    {
+        var sibling = Sibling(parent, child);
+        if (sibling != null && sibling.Color == RbColor.Red)
+        {
+            parent.Color = RbColor.Red;
+            sibling.Color = RbColor.Black;
+            if (sibling.IsLeftChild)
+                RotateRight(parent);
             else
+                RotateLeft(parent);
+        }
+        RemoveCase3(parent, child);
+    }
+
+    private void RemoveCase3(RbNode<TKey, TValue> parent, RbNode<TKey, TValue>? child)
+    {
+        var sibling = Sibling(parent, child);
+        if (parent.Color == RbColor.Black &&
+            sibling != null && sibling.Color == RbColor.Black &&
+            GetColor(sibling.Left) == RbColor.Black &&
+            GetColor(sibling.Right) == RbColor.Black)
+        {
+            sibling.Color = RbColor.Red;
+            RemoveCase1(parent.Parent, parent);
+        }
+        else
+        {
+            RemoveCase4(parent, child);
+        }
+    }
+
+    private void RemoveCase4(RbNode<TKey, TValue> parent, RbNode<TKey, TValue>? child)
+    {
+        var sibling = Sibling(parent, child);
+        if (parent.Color == RbColor.Red &&
+            sibling != null && sibling.Color == RbColor.Black &&
+            GetColor(sibling.Left) == RbColor.Black &&
+            GetColor(sibling.Right) == RbColor.Black)
+        {
+            sibling.Color = RbColor.Red;
+            parent.Color = RbColor.Black;
+        }
+        else
+        {
+            RemoveCase5(parent, child);
+        }
+    }
+
+    private void RemoveCase5(RbNode<TKey, TValue> parent, RbNode<TKey, TValue>? child)
+    {
+        var sibling = Sibling(parent, child);
+        if (sibling != null && sibling.Color == RbColor.Black)
+        {
+            if (sibling.IsLeftChild &&
+                GetColor(sibling.Left) == RbColor.Red &&
+                GetColor(sibling.Right) == RbColor.Black)
             {
-                var w = parent.Left;
-                if (GetColor(w) == RbColor.Red)
-                {
-                    SetColor(w, RbColor.Black);
-                    SetColor(parent, RbColor.Red);
-                    RotateRight(parent);
-                    w = parent.Left;
-                }
-                if (GetColor(w?.Right) == RbColor.Black && GetColor(w?.Left) == RbColor.Black)
-                {
-                    SetColor(w, RbColor.Red);
-                    x = parent;
-                    parent = x?.Parent;
-                }
-                else
-                {
-                    if (GetColor(w?.Left) == RbColor.Black)
-                    {
-                        SetColor(w?.Right, RbColor.Black);
-                        SetColor(w, RbColor.Red);
-                        RotateLeft(w);
-                        w = parent.Left;
-                    }
-                    SetColor(w, GetColor(parent));
-                    SetColor(parent, RbColor.Black);
-                    SetColor(w?.Left, RbColor.Black);
-                    RotateRight(parent);
-                    x = Root;
-                }
+                sibling.Color = RbColor.Red;
+                sibling.Left!.Color = RbColor.Black;
+                RotateRight(sibling);
+            }
+            else if (sibling.IsRightChild &&
+                     GetColor(sibling.Right) == RbColor.Red &&
+                     GetColor(sibling.Left) == RbColor.Black)
+            {
+                sibling.Color = RbColor.Red;
+                sibling.Right!.Color = RbColor.Black;
+                RotateLeft(sibling);
             }
         }
-        SetColor(x, RbColor.Black);
+        RemoveCase6(parent, child);
+    }
+
+    private void RemoveCase6(RbNode<TKey, TValue> parent, RbNode<TKey, TValue>? child)
+    {
+        var sibling = Sibling(parent, child);
+        if (sibling == null) return;
+
+        sibling.Color = parent.Color;
+        parent.Color = RbColor.Black;
+        if (sibling.IsRightChild)
+        {
+            if (sibling.Right != null) sibling.Right.Color = RbColor.Black;
+            RotateLeft(parent);
+        }
+        else
+        {
+            if (sibling.Left != null) sibling.Left.Color = RbColor.Black;
+            RotateRight(parent);
+        }
     }
 
     private static RbColor GetColor(RbNode<TKey, TValue>? node) => node?.Color ?? RbColor.Black;
-
-    private static void SetColor(RbNode<TKey, TValue>? node, RbColor color)
-    {
-        if (node != null) node.Color = color;
-    }
+    private static void SetColor(RbNode<TKey, TValue>? node, RbColor color) { if (node != null) node.Color = color; }
 }
