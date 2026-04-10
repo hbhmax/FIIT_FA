@@ -205,23 +205,17 @@ public abstract class BinarySearchTreeBase<TKey, TValue, TNode>(IComparer<TKey>?
         InOrderReverse, PreOrderReverse, PostOrderReverse
     }
 
-    public IEnumerable<TreeEntry<TKey, TValue>> InOrder() =>
-        new TreeIterator(this, TraversalStrategy.InOrder);
+    public IEnumerable<TreeEntry<TKey, TValue>> InOrder() => new TreeIterator(this, TraversalStrategy.InOrder);
 
-    public IEnumerable<TreeEntry<TKey, TValue>> PreOrder() =>
-        new TreeIterator(this, TraversalStrategy.PreOrder);
+    public IEnumerable<TreeEntry<TKey, TValue>> PreOrder() => new TreeIterator(this, TraversalStrategy.PreOrder);
 
-    public IEnumerable<TreeEntry<TKey, TValue>> PostOrder() =>
-        new TreeIterator(this, TraversalStrategy.PostOrder);
+    public IEnumerable<TreeEntry<TKey, TValue>> PostOrder() => new TreeIterator(this, TraversalStrategy.PostOrder);
 
-    public IEnumerable<TreeEntry<TKey, TValue>> InOrderReverse() =>
-        new TreeIterator(this, TraversalStrategy.InOrderReverse);
+    public IEnumerable<TreeEntry<TKey, TValue>> InOrderReverse() => new TreeIterator(this, TraversalStrategy.InOrderReverse);
 
-    public IEnumerable<TreeEntry<TKey, TValue>> PreOrderReverse() =>
-        new TreeIterator(this, TraversalStrategy.PreOrderReverse);
+    public IEnumerable<TreeEntry<TKey, TValue>> PreOrderReverse() => new TreeIterator(this, TraversalStrategy.PreOrderReverse);
 
-    public IEnumerable<TreeEntry<TKey, TValue>> PostOrderReverse() =>
-        new TreeIterator(this, TraversalStrategy.PostOrderReverse);
+    public IEnumerable<TreeEntry<TKey, TValue>> PostOrderReverse() => new TreeIterator(this, TraversalStrategy.PostOrderReverse);
 
     private struct TreeIterator : IEnumerable<TreeEntry<TKey, TValue>>, IEnumerator<TreeEntry<TKey, TValue>>
     {
