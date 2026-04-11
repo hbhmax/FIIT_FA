@@ -4,8 +4,6 @@ namespace Arithmetic.BigInt.MultiplyStrategy;
 
 internal class KaratsubaMultiplier : IMultiplier
 {
-    private const int Threshold = 32;
-
     public BetterBigInteger Multiply(BetterBigInteger a, BetterBigInteger b)
     {
         if (IsZero(a) || IsZero(b))
@@ -31,8 +29,14 @@ internal class KaratsubaMultiplier : IMultiplier
         if (x.Length == 0 || y.Length == 0 || (x.Length == 1 && x[0] == 0) || (y.Length == 1 && y[0] == 0))
             return new uint[] { 0 };
 
-        if (x.Length <= Threshold || y.Length <= Threshold)
-            return MultiplySimple(x, y);
+        if (x.Length == 1 && y.Length == 1)
+        {
+            ulong prod = (ulong)x[0] * y[0];
+            if (prod < (1UL << 32))                             // ~ if (prod < 2³²)
+                return new uint[] { (uint)prod };
+            else
+                return new uint[] { (uint)prod, (uint)(prod >> 32) };
+        }
 
         int n = Math.Max(x.Length, y.Length);
         int m = n / 2;
@@ -42,39 +46,17 @@ internal class KaratsubaMultiplier : IMultiplier
         var y0 = y.Length <= m ? ReadOnlySpan<uint>.Empty : y[0..Math.Min(m, y.Length)];
         var y1 = y.Length <= m ? ReadOnlySpan<uint>.Empty : y[Math.Min(m, y.Length)..];
 
-        var z0 = MultiplyCore(x0, y0);
-        var z2 = MultiplyCore(x1, y1);
-        var xSum = Add(x0, x1);
-        var ySum = Add(y0, y1);
-        var z1 = MultiplyCore(xSum, ySum);
+        var z0 = MultiplyCore(x0, y0);                    // A0*B0
+        var z2 = MultiplyCore(x1, y1);                    // A1*B1
+        var xSum = Add(x0, x1);                           // A0+A1
+        var ySum = Add(y0, y1);                           // B0+B1
+        var z1 = MultiplyCore(xSum, ySum);                // (A0+A1)*(B0+B1)
+
         z1 = Subtract(z1, z0);
         z1 = Subtract(z1, z2);
 
         var result = Add(z0, ShiftLeft(z1, m));
         result = Add(result, ShiftLeft(z2, 2 * m));
-        return result;
-    }
-
-    private static uint[] MultiplySimple(ReadOnlySpan<uint> x, ReadOnlySpan<uint> y)
-    {
-        var result = new uint[x.Length + y.Length];
-        for (int i = 0; i < x.Length; i++)
-        {
-            if (x[i] == 0) continue;
-            ulong carry = 0;
-            for (int j = 0; j < y.Length; j++)
-            {
-                ulong prod = (ulong)x[i] * y[j] + result[i + j] + carry;
-                result[i + j] = (uint)prod;
-                carry = prod >> 32;
-            }
-            if (carry != 0)
-                result[i + y.Length] += (uint)carry;
-        }
-        int len = result.Length;
-        while (len > 0 && result[len - 1] == 0) len--;
-        if (len == 0) return new uint[] { 0 };
-        if (len < result.Length) Array.Resize(ref result, len);
         return result;
     }
 
@@ -127,6 +109,8 @@ internal class KaratsubaMultiplier : IMultiplier
         var result = new uint[digits.Length + shift];
         digits.CopyTo(result.AsSpan(shift));
         return result;
+
+        //Таким образом, элемент digits[0] копируется в result[shift], digits[1] – в result[shift+1], и так далее. Первые shift слов (индексы 0..shift-1) остаются нулевыми
     }
 
     private static bool IsZero(BetterBigInteger num)

@@ -42,8 +42,7 @@ public sealed class BetterBigInteger : IBigInteger
         }
     }
 
-    public BetterBigInteger(IEnumerable<uint> digits, bool isNegative = false)
-        : this(digits.ToArray(), isNegative) { }
+    public BetterBigInteger(IEnumerable<uint> digits, bool isNegative = false) : this(digits.ToArray(), isNegative) { }
 
     public BetterBigInteger(string value, int radix)
     {
