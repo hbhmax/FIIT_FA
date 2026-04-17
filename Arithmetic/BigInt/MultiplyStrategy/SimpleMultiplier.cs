@@ -17,15 +17,22 @@ internal class SimpleMultiplier : IMultiplier
         for (int i = 0; i < aDigits.Length; i++)
         {
             if (aDigits[i] == 0) continue;
-            ulong carry = 0;
+            uint aVal = aDigits[i];
             for (int j = 0; j < bDigits.Length; j++)
             {
-                ulong product = (ulong)aDigits[i] * bDigits[j] + result[i + j] + carry;
-                result[i + j] = (uint)product;
-                carry = product >> 32;
+                uint bVal = bDigits[j];
+                MultiplyWords(aVal, bVal, out uint high, out uint low);
+
+                int index = i + j;
+                uint sum = result[index] + low;
+                uint carry = sum < result[index] ? 1u : 0u;
+                result[index] = sum;
+
+                if (high != 0 || carry != 0)
+                {
+                    AddWordToResult(result, index + 1, high + carry);
+                }
             }
-            if (carry != 0)
-                result[i + bDigits.Length] += (uint)carry;
         }
 
         int len = result.Length;
@@ -37,6 +44,44 @@ internal class SimpleMultiplier : IMultiplier
 
         bool isNegative = a.IsNegative ^ b.IsNegative;
         return new BetterBigInteger(result, isNegative);
+    }
+    private static void MultiplyWords(uint a, uint b, out uint high, out uint low)
+    {
+        uint aLo = a & 0xFFFF;
+        uint aHi = a >> 16;
+        uint bLo = b & 0xFFFF;
+        uint bHi = b >> 16;
+
+        uint loLo = aLo * bLo;
+        uint loHi = aLo * bHi;
+        uint hiLo = aHi * bLo;
+        uint hiHi = aHi * bHi;
+
+        uint midSum = (loLo >> 16) + (loHi & 0xFFFF);
+        bool carry1 = midSum < (loLo >> 16);
+        midSum += (hiLo & 0xFFFF);
+        if (midSum < (hiLo & 0xFFFF)) carry1 = true;
+
+        low = (midSum << 16) | (loLo & 0xFFFF);
+
+        uint carry2 = midSum >> 16;
+        uint totalCarry = (carry1 ? 1u : 0u) + carry2;
+
+        high = hiHi + (loHi >> 16) + (hiLo >> 16) + totalCarry;
+    }
+
+    private static void AddWordToResult(uint[] result, int startIndex, uint value)
+    {
+        if (value == 0) return;
+        uint carry = value;
+        int i = startIndex;
+        while (carry != 0 && i < result.Length)
+        {
+            uint sum = result[i] + carry;
+            carry = sum < result[i] ? 1u : 0u;
+            result[i] = sum;
+            i++;
+        }
     }
 
     private static bool IsZero(ReadOnlySpan<uint> digits)

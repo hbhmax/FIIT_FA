@@ -31,11 +31,11 @@ internal class KaratsubaMultiplier : IMultiplier
 
         if (x.Length == 1 && y.Length == 1)
         {
-            ulong prod = (ulong)x[0] * y[0];
-            if (prod < (1UL << 32))                             // ~ if (prod < 2³²)
-                return new uint[] { (uint)prod };
+            MultiplyWords(x[0], y[0], out uint high, out uint low);
+            if (high == 0)
+                return new uint[] { low };
             else
-                return new uint[] { (uint)prod, (uint)(prod >> 32) };
+                return new uint[] { low, high };
         }
 
         int n = Math.Max(x.Length, y.Length);
@@ -60,21 +60,51 @@ internal class KaratsubaMultiplier : IMultiplier
         return result;
     }
 
+    private static void MultiplyWords(uint a, uint b, out uint high, out uint low)
+    {
+        uint aLo = a & 0xFFFF;
+        uint aHi = a >> 16;
+        uint bLo = b & 0xFFFF;
+        uint bHi = b >> 16;
+
+        uint loLo = aLo * bLo;
+        uint loHi = aLo * bHi;
+        uint hiLo = aHi * bLo;
+        uint hiHi = aHi * bHi;
+
+        uint midSum = (loLo >> 16) + (loHi & 0xFFFF);
+        bool carry1 = midSum < (loLo >> 16);
+        midSum += (hiLo & 0xFFFF);
+        if (midSum < (hiLo & 0xFFFF)) carry1 = true;
+
+        low = (midSum << 16) | (loLo & 0xFFFF);
+
+        uint carry2 = midSum >> 16;
+        uint totalCarry = (carry1 ? 1u : 0u) + carry2;
+
+        high = hiHi + (loHi >> 16) + (hiLo >> 16) + totalCarry;
+    }
+
     private static uint[] Add(ReadOnlySpan<uint> a, ReadOnlySpan<uint> b)
     {
         int maxLen = Math.Max(a.Length, b.Length);
-        var result = new uint[maxLen + 1];
-        ulong carry = 0;
+        uint[] result = new uint[maxLen + 1];
+        uint carry = 0;
         for (int i = 0; i < maxLen; i++)
         {
-            ulong sum = carry;
-            if (i < a.Length) sum += a[i];
-            if (i < b.Length) sum += b[i];
-            result[i] = (uint)sum;
-            carry = sum >> 32;
+            uint av = i < a.Length ? a[i] : 0u;
+            uint bv = i < b.Length ? b[i] : 0u;
+
+            uint sum = av + carry;
+            bool carry1 = sum < av;
+            sum += bv;
+            bool carry2 = sum < bv;
+
+            result[i] = sum;
+            carry = (carry1 || carry2) ? 1u : 0u;
         }
         if (carry != 0)
-            result[maxLen] = (uint)carry;
+            result[maxLen] = carry;
         else
             Array.Resize(ref result, maxLen);
         return result;
@@ -82,20 +112,22 @@ internal class KaratsubaMultiplier : IMultiplier
 
     private static uint[] Subtract(ReadOnlySpan<uint> a, ReadOnlySpan<uint> b)
     {
-        var result = new uint[a.Length];
-        long borrow = 0;
+        uint[] result = new uint[a.Length];
+        uint borrow = 0;
         for (int i = 0; i < a.Length; i++)
         {
-            long diff = (long)a[i] - borrow;
-            if (i < b.Length) diff -= b[i];
-            if (diff < 0)
-            {
-                diff += 1L << 32;
-                borrow = 1;
-            }
-            else borrow = 0;
-            result[i] = (uint)diff;
+            uint av = a[i];
+            uint bv = i < b.Length ? b[i] : 0u;
+
+            uint diff = av - borrow;
+            bool borrow1 = diff > av;
+            uint diff2 = diff - bv;
+            bool borrow2 = diff2 > diff;
+
+            result[i] = diff2;
+            borrow = (borrow1 || borrow2) ? 1u : 0u;
         }
+
         int len = result.Length;
         while (len > 0 && result[len - 1] == 0) len--;
         if (len == 0) return new uint[] { 0 };
@@ -106,11 +138,9 @@ internal class KaratsubaMultiplier : IMultiplier
     private static uint[] ShiftLeft(ReadOnlySpan<uint> digits, int shift)
     {
         if (shift == 0) return digits.ToArray();
-        var result = new uint[digits.Length + shift];
+        uint[] result = new uint[digits.Length + shift];
         digits.CopyTo(result.AsSpan(shift));
         return result;
-
-        //Таким образом, элемент digits[0] копируется в result[shift], digits[1] – в result[shift+1], и так далее. Первые shift слов (индексы 0..shift-1) остаются нулевыми
     }
 
     private static bool IsZero(BetterBigInteger num)

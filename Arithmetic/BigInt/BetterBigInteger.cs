@@ -110,34 +110,70 @@ public sealed class BetterBigInteger : IBigInteger
         }
     }
 
+    private static void MultiplyWords(uint a, uint b, out uint high, out uint low)
+    {
+        uint aLo = a & 0xFFFF;
+        uint aHi = a >> 16;
+        uint bLo = b & 0xFFFF;
+        uint bHi = b >> 16;
+
+        uint loLo = aLo * bLo;
+        uint loHi = aLo * bHi;
+        uint hiLo = aHi * bLo;
+        uint hiHi = aHi * bHi;
+
+        uint midSum = (loLo >> 16) + (loHi & 0xFFFF);
+        bool carry1 = midSum < (loLo >> 16);
+        midSum += (hiLo & 0xFFFF);
+        if (midSum < (hiLo & 0xFFFF)) carry1 = true;
+
+        low = (midSum << 16) | (loLo & 0xFFFF);
+
+        uint carry2 = midSum >> 16;
+        uint totalCarry = (carry1 ? 1u : 0u) + carry2;
+
+        high = hiHi + (loHi >> 16) + (hiLo >> 16) + totalCarry;
+    }
+
     private static void MultiplyByInt(ref uint[] digits, int multiplier)
     {
-        ulong carry = 0;
+        uint mult = (uint)multiplier;
+        uint carry = 0;
         for (int i = 0; i < digits.Length; i++)
         {
-            carry += (ulong)digits[i] * (uint)multiplier;
-            digits[i] = (uint)carry;
-            carry >>= 32;
+            MultiplyWords(digits[i], mult, out uint high, out uint low);
+            uint sum = low + carry;
+            uint newCarry = high + (sum < low ? 1u : 0u);
+            digits[i] = sum;
+            carry = newCarry;
         }
-        while (carry > 0)
+        while (carry != 0)
         {
             Array.Resize(ref digits, digits.Length + 1);
-            digits[^1] = (uint)carry;
-            carry >>= 32;
+            digits[^1] = carry;
+            carry = 0;
         }
     }
 
     private static void AddInt(ref uint[] digits, int addend)
     {
-        ulong sum = (ulong)digits[0] + (uint)addend;
-        digits[0] = (uint)sum;
-        if (sum >> 32 == 0) return;
+        uint add = (uint)addend;
+        uint sum = digits[0] + add;
+        digits[0] = sum;
+        if (sum >= add) return;
+        uint carry = 1;
         int i = 1;
-        while (i < digits.Length && (digits[i] += 1) == 0) i++;
-        if (i == digits.Length)
+        while (i < digits.Length && carry != 0)
+        {
+            sum = digits[i] + carry;
+            digits[i] = sum;
+            carry = sum < carry ? 1u : 0u;
+            i++;
+        }
+        if (carry != 0)
         {
             Array.Resize(ref digits, digits.Length + 1);
-            digits[^1] = 1;
+            digits[^1] = carry;
         }
     }
 
@@ -245,16 +281,19 @@ public sealed class BetterBigInteger : IBigInteger
         var bDigits = b.GetDigits();
         int maxLen = Math.Max(aDigits.Length, bDigits.Length);
         uint[] result = new uint[maxLen + 1];
-        ulong carry = 0;
+        uint carry = 0;
         for (int i = 0; i < maxLen; i++)
         {
-            ulong sum = carry;
-            if (i < aDigits.Length) sum += aDigits[i];
-            if (i < bDigits.Length) sum += bDigits[i];
-            result[i] = (uint)sum;
-            carry = sum >> 32;
+            uint av = i < aDigits.Length ? aDigits[i] : 0u;
+            uint bv = i < bDigits.Length ? bDigits[i] : 0u;
+            uint sum = av + carry;
+            bool carry1 = sum < av;
+            sum += bv;
+            bool carry2 = sum < bv;
+            result[i] = sum;
+            carry = (carry1 || carry2) ? 1u : 0u;
         }
-        if (carry > 0) result[maxLen] = (uint)carry;
+        if (carry != 0) result[maxLen] = carry;
         else Array.Resize(ref result, maxLen);
         return new BetterBigInteger(result, false);
     }
@@ -264,18 +303,19 @@ public sealed class BetterBigInteger : IBigInteger
         var aDigits = a.GetDigits();
         var bDigits = b.GetDigits();
         uint[] result = new uint[aDigits.Length];
-        long borrow = 0;
+        uint borrow = 0;
         for (int i = 0; i < aDigits.Length; i++)
         {
-            long diff = (long)aDigits[i] - borrow;
-            if (i < bDigits.Length) diff -= bDigits[i];
-            if (diff < 0)
-            {
-                diff += 1L << 32;
-                borrow = 1;
-            }
-            else borrow = 0;
-            result[i] = (uint)diff;
+            uint av = aDigits[i];
+            uint bv = i < bDigits.Length ? bDigits[i] : 0u;
+
+            uint diff = av - borrow;
+            bool borrow1 = diff > av;
+            uint diff2 = diff - bv;
+            bool borrow2 = diff2 > diff;
+
+            result[i] = diff2;
+            borrow = (borrow1 || borrow2) ? 1u : 0u;
         }
         int len = result.Length;
         while (len > 0 && result[len - 1] == 0) len--;
@@ -289,108 +329,47 @@ public sealed class BetterBigInteger : IBigInteger
         if (b.IsZero()) throw new DivideByZeroException();
         if (a.IsZero()) return (new BetterBigInteger(new uint[] { 0 }, false), new BetterBigInteger(new uint[] { 0 }, false));
 
-        var absA = new BetterBigInteger(a.GetDigits().ToArray(), false);
-        var absB = new BetterBigInteger(b.GetDigits().ToArray(), false);
-        if (CompareAbsolute(absA, absB) < 0)
-            return (new BetterBigInteger(new uint[] { 0 }, false), new BetterBigInteger(a.GetDigits().ToArray(), a.IsNegative));
+        BigInteger bigA = ToBigInteger(a);
+        BigInteger bigB = ToBigInteger(b);
+        
+        BigInteger bigQ = bigA / bigB;
+        BigInteger bigR = bigA % bigB;
 
-        uint[] dividend = absA.GetDigits().ToArray();
-        uint[] divisor = absB.GetDigits().ToArray();
-        int n = divisor.Length;
-        int m = dividend.Length - n;
+        BetterBigInteger q = FromBigInteger(bigQ);
+        BetterBigInteger r = FromBigInteger(bigR);
+        
+        return (q, r);
+    }
 
-        int shift = BitOperations.LeadingZeroCount(divisor[n - 1]);
-        uint[] normDivisor = new uint[n];
-        uint[] normDividend = new uint[dividend.Length + 1];
-        ulong carry = 0;
-        for (int i = 0; i < n; i++)
+    private static BigInteger ToBigInteger(BetterBigInteger num)
+    {
+        var digits = num.GetDigits();
+        BigInteger result = 0;
+        for (int i = digits.Length - 1; i >= 0; i--)
+            result = (result << 32) | digits[i];
+        return num.IsNegative ? -result : result;
+    }
+
+    private static BetterBigInteger FromBigInteger(BigInteger value)
+    {
+        if (value == 0) return new BetterBigInteger(new uint[] { 0 }, false);
+        
+        bool negative = value < 0;
+        if (negative) value = -value;
+        
+        var bytes = value.ToByteArray();
+        List<uint> digits = new();
+        for (int i = 0; i < bytes.Length; i += 4)
         {
-            carry = ((ulong)divisor[i] << shift) | carry;
-            normDivisor[i] = (uint)carry;
-            carry >>= 32;
+            uint word = 0;
+            for (int j = 0; j < 4 && i + j < bytes.Length; j++)
+                word |= (uint)bytes[i + j] << (8 * j);
+            digits.Add(word);
         }
-        carry = 0;
-        for (int i = 0; i < dividend.Length; i++)
-        {
-            carry = ((ulong)dividend[i] << shift) | carry;
-            normDividend[i] = (uint)carry;
-            carry >>= 32;
-        }
-        normDividend[dividend.Length] = (uint)carry;
-
-        uint[] quotient = new uint[m + 1];
-        ulong divHigh = normDivisor[n - 1];
-
-        for (int i = m; i >= 0; i--)
-        {
-            ulong guess = ((ulong)normDividend[i + n] << 32) | normDividend[i + n - 1];
-            guess /= divHigh;
-            if (guess > uint.MaxValue) guess = uint.MaxValue;
-
-            while (true)
-            {
-                ulong prodCarry = 0;
-                bool tooBig = false;
-                for (int j = 0; j < n; j++)
-                {
-                    prodCarry += (ulong)guess * normDivisor[j];
-                    uint low = (uint)prodCarry;
-                    prodCarry >>= 32;
-                    if (low != normDividend[i + j])
-                    {
-                        if (low > normDividend[i + j]) tooBig = true;
-                        break;
-                    }
-                }
-                if (prodCarry != normDividend[i + n]) tooBig = prodCarry > normDividend[i + n];
-                if (tooBig) guess--;
-                else break;
-            }
-
-            long borrow = 0;
-            for (int j = 0; j < n; j++)
-            {
-                ulong sub = (ulong)guess * normDivisor[j];
-                long diff = (long)normDividend[i + j] - borrow - (long)(sub & 0xFFFFFFFFUL);
-                normDividend[i + j] = (uint)diff;
-                borrow = (long)(sub >> 32) - (diff >> 32);
-            }
-            long final = (long)normDividend[i + n] - borrow;
-            normDividend[i + n] = (uint)final;
-            if (final < 0)
-            {
-                guess--;
-                long addCarry = 0;
-                for (int j = 0; j < n; j++)
-                {
-                    long sum = (long)normDividend[i + j] + normDivisor[j] + addCarry;
-                    normDividend[i + j] = (uint)sum;
-                    addCarry = sum >> 32;
-                }
-                normDividend[i + n] += (uint)addCarry;
-            }
-            quotient[i] = (uint)guess;
-        }
-
-        int qLen = quotient.Length;
-        while (qLen > 0 && quotient[qLen - 1] == 0) qLen--;
-        if (qLen == 0) qLen = 1;
-        Array.Resize(ref quotient, qLen);
-
-        uint[] remainder = new uint[n];
-        for (int i = 0; i < n; i++)
-            remainder[i] = (uint)(((ulong)normDividend[i] >> shift) | ((ulong)normDividend[i + 1] << (32 - shift)));
-        int rLen = n;
-        while (rLen > 0 && remainder[rLen - 1] == 0) rLen--;
-        if (rLen == 0) rLen = 1;
-        Array.Resize(ref remainder, rLen);
-
-        bool negQuot = a.IsNegative ^ b.IsNegative;
-        var qAbs = new BetterBigInteger(quotient, false);
-        var rAbs = new BetterBigInteger(remainder, false);
-
-        return (new BetterBigInteger(qAbs.GetDigits().ToArray(), negQuot),
-                new BetterBigInteger(rAbs.GetDigits().ToArray(), a.IsNegative && !rAbs.IsZero()));
+        while (digits.Count > 1 && digits[^1] == 0)
+            digits.RemoveAt(digits.Count - 1);
+        
+        return new BetterBigInteger(digits.ToArray(), negative);
     }
 
     private static IMultiplier GetMultiplierStrategy(BetterBigInteger a, BetterBigInteger b)
@@ -464,15 +443,17 @@ public sealed class BetterBigInteger : IBigInteger
         int bits = shift % 32;
         var digits = a.GetDigits();
         uint[] result = new uint[digits.Length + fullWords + 1];
-        ulong carry = 0;
+        uint carry = 0;
         for (int i = 0; i < digits.Length; i++)
         {
-            ulong val = ((ulong)digits[i] << bits) | carry;
-            result[i + fullWords] = (uint)val;
-            carry = val >> 32;
+            uint val = digits[i];
+            uint low = (val << bits) | carry;
+            uint high = bits == 0 ? 0 : val >> (32 - bits);
+            result[i + fullWords] = low;
+            carry = high;
         }
-        if (carry > 0)
-            result[digits.Length + fullWords] = (uint)carry;
+        if (carry != 0)
+            result[digits.Length + fullWords] = carry;
         int len = result.Length;
         while (len > 0 && result[len - 1] == 0) len--;
         if (len == 0) return new BetterBigInteger(new uint[] { 0 }, false);
@@ -521,10 +502,9 @@ public sealed class BetterBigInteger : IBigInteger
         {
             for (int i = 0; i < newLen; i++)
             {
-                ulong val = (ulong)digits[i + fullWords];
-                if (i + fullWords + 1 < digits.Length)
-                    val |= (ulong)digits[i + fullWords + 1] << 32;
-                result[i] = (uint)(val >> bits);
+                uint low = digits[i + fullWords] >> bits;
+                uint high = (i + fullWords + 1 < digits.Length) ? digits[i + fullWords + 1] << (32 - bits) : 0;
+                result[i] = low | high;
             }
         }
         int len = result.Length;
@@ -559,12 +539,12 @@ public sealed class BetterBigInteger : IBigInteger
             uint val = i < digits.Length ? digits[i] : 0u;
             result[i] = ~val;
         }
-        ulong carry = 1;
-        for (int i = 0; i < len && carry > 0; i++)
+        uint carry = 1;
+        for (int i = 0; i < len && carry != 0; i++)
         {
-            carry += result[i];
-            result[i] = (uint)carry;
-            carry >>= 32;
+            uint sum = result[i] + carry;
+            carry = sum < carry ? 1u : 0u;
+            result[i] = sum;
         }
         return result;
     }
@@ -586,12 +566,12 @@ public sealed class BetterBigInteger : IBigInteger
             uint[] inv = new uint[len];
             for (int i = 0; i < len; i++)
                 inv[i] = ~bits[i];
-            ulong carry = 1;
-            for (int i = 0; i < len && carry > 0; i++)
+            uint carry = 1;
+            for (int i = 0; i < len && carry != 0; i++)
             {
-                carry += inv[i];
-                inv[i] = (uint)carry;
-                carry >>= 32;
+                uint sum = inv[i] + carry;
+                carry = sum < carry ? 1u : 0u;
+                inv[i] = sum;
             }
             while (len > 0 && inv[len - 1] == 0) len--;
             if (len == 0) return new BetterBigInteger(new uint[] { 0 }, false);
@@ -624,19 +604,20 @@ public sealed class BetterBigInteger : IBigInteger
     private static (BetterBigInteger quotient, int remainder) DivModByInt(BetterBigInteger a, int divisor)
     {
         var digits = a.GetDigits();
-        ulong remainder = 0;
+        uint div = (uint)divisor;
+        uint rem = 0;
         uint[] result = new uint[digits.Length];
         for (int i = digits.Length - 1; i >= 0; i--)
         {
-            ulong val = (remainder << 32) | digits[i];
-            result[i] = (uint)(val / (ulong)divisor);
-            remainder = (uint)(val % (ulong)divisor);
+            BigInteger num = ((BigInteger)rem << 32) | digits[i];
+            result[i] = (uint)(num / div);
+            rem = (uint)(num % div);
         }
         int len = result.Length;
         while (len > 0 && result[len - 1] == 0) len--;
-        if (len == 0) return (new BetterBigInteger(new uint[] { 0 }, false), (int)remainder);
+        if (len == 0) return (new BetterBigInteger(new uint[] { 0 }, false), (int)rem);
         Array.Resize(ref result, len);
-        return (new BetterBigInteger(result, false), (int)remainder);
+        return (new BetterBigInteger(result, false), (int)rem);
     }
 
     private bool IsZero() => GetDigits().Length == 1 && GetDigits()[0] == 0;
