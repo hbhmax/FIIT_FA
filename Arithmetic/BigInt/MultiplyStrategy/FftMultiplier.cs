@@ -1,158 +1,212 @@
-﻿using Arithmetic.BigInt.Interfaces;
-using System.Numerics;
+﻿using System.Numerics;
+using Arithmetic.BigInt.Interfaces;
 
 namespace Arithmetic.BigInt.MultiplyStrategy;
 
 internal class FftMultiplier : IMultiplier
 {
-    private static readonly BigInteger[] Mods = { 998244353, 1004535809, 469762049 };
-    private static readonly BigInteger[] Roots = { 3, 3, 3 };
-
     public BetterBigInteger Multiply(BetterBigInteger a, BetterBigInteger b)
     {
-        if (IsZero(a) || IsZero(b))
+        if (a.IsZero() || b.IsZero())
             return new BetterBigInteger(new uint[] { 0 }, false);
 
-        bool isNegative = a.IsNegative ^ b.IsNegative;
-        var aDigits = a.GetDigits();
-        var bDigits = b.GetDigits();
+        bool resultSign = a.IsNegative ^ b.IsNegative;
 
-        var x = aDigits.ToArray().Select(d => (BigInteger)d).ToArray();
-        var y = bDigits.ToArray().Select(d => (BigInteger)d).ToArray();
+        uint[] aDigits = a.GetDigits().ToArray();
+        uint[] bDigits = b.GetDigits().ToArray();
 
-        var results = new BigInteger[3][];
-        for (int i = 0; i < 3; i++)
+        BigInteger bigA = BigIntegerFromDigits(aDigits);
+        BigInteger bigB = BigIntegerFromDigits(bDigits);
+
+        int aBitLen = GetBitLength(bigA);
+        int bBitLen = GetBitLength(bigB);
+        if (aBitLen == 0 || bBitLen == 0)
+            return new BetterBigInteger(new uint[] { 0 }, false);
+
+        const int K = 30;
+        BigInteger mask = (BigInteger.One << K) - 1;
+
+        int lenA = (aBitLen + K - 1) / K;
+        int lenB = (bBitLen + K - 1) / K;
+        int convLen = lenA + lenB - 1;
+
+        int L = 1;
+        while (L < convLen) L <<= 1;
+
+        BigInteger maxCoeff = mask;
+        BigInteger maxVal = new BigInteger(convLen) * maxCoeff * maxCoeff;
+
+        int N = L;
+        while ((BigInteger.One << N) + 1 <= maxVal)
+            N <<= 1;
+
+        BigInteger M = (BigInteger.One << N) + 1;
+
+        BigInteger psi = BigInteger.ModPow(2, N / L, M);
+        BigInteger omega = psi * psi % M;
+
+        BigInteger[] aCoeffs = new BigInteger[L];
+        BigInteger[] bCoeffs = new BigInteger[L];
+        for (int i = 0; i < lenA; i++)
+            aCoeffs[i] = (bigA >> (i * K)) & mask;
+        for (int i = 0; i < lenB; i++)
+            bCoeffs[i] = (bigB >> (i * K)) & mask;
+
         {
-            var fa = x.Select(v => v % Mods[i]).ToArray();
-            var fb = y.Select(v => v % Mods[i]).ToArray();
-            results[i] = MultiplyNTTMod(fa, fb, Mods[i], Roots[i]);
+            BigInteger w = 1;
+            for (int i = 0; i < L; i++)
+            {
+                aCoeffs[i] = aCoeffs[i] * w % M;
+                bCoeffs[i] = bCoeffs[i] * w % M;
+                w = w * psi % M;
+            }
         }
 
-        var product = ChineseRemainderBigInteger(results[0], results[1], results[2]);
+        Fft(aCoeffs, false, omega, M);
+        Fft(bCoeffs, false, omega, M);
 
-        var resultDigits = new List<uint>();
+        for (int i = 0; i < L; i++)
+            aCoeffs[i] = aCoeffs[i] * bCoeffs[i] % M;
+
+        Fft(aCoeffs, true, omega, M);
+
+        BigInteger invL = ModInverse(new BigInteger(L), M);
+        BigInteger invPsi = ModInverse(psi, M);
+        {
+            BigInteger wInv = 1;
+            for (int i = 0; i < L; i++)
+            {
+                aCoeffs[i] = aCoeffs[i] * wInv % M * invL % M;
+                wInv = wInv * invPsi % M;
+            }
+        }
+
         BigInteger carry = 0;
-        for (int i = 0; i < product.Length; i++)
+        for (int i = 0; i < convLen; i++)
         {
-            carry += product[i];
-            resultDigits.Add((uint)(carry & 0xFFFFFFFF));
-            carry >>= 32;
+            BigInteger val = aCoeffs[i] + carry;
+            carry = val >> K;
+            aCoeffs[i] = val & mask;
         }
+        int resultLength = convLen;
         while (carry > 0)
         {
-            resultDigits.Add((uint)(carry & 0xFFFFFFFF));
-            carry >>= 32;
+            if (resultLength >= aCoeffs.Length)
+                Array.Resize(ref aCoeffs, aCoeffs.Length * 2);
+            aCoeffs[resultLength] = carry & mask;
+            carry >>= K;
+            resultLength++;
         }
-        while (resultDigits.Count > 1 && resultDigits[^1] == 0)
-            resultDigits.RemoveAt(resultDigits.Count - 1);
 
-        return new BetterBigInteger(resultDigits.ToArray(), isNegative);
+        BigInteger product = 0;
+        for (int i = 0; i < resultLength; i++)
+            product += aCoeffs[i] << (i * K);
+
+        return new BetterBigInteger(BigIntegerToUIntArray(product), resultSign);
     }
 
-    private static BigInteger[] MultiplyNTTMod(BigInteger[] a, BigInteger[] b, BigInteger mod, BigInteger root)
+    private static void Fft(BigInteger[] data, bool invert, BigInteger omega, BigInteger M)
     {
-        int n = 1;
-        int totalLen = a.Length + b.Length;
-        while (n < totalLen) n <<= 1;
-        var fa = new BigInteger[n];
-        var fb = new BigInteger[n];
-        Array.Copy(a, fa, a.Length);
-        Array.Copy(b, fb, b.Length);
-        NTT(fa, false, mod, root);
-        NTT(fb, false, mod, root);
-        for (int i = 0; i < n; i++)
-            fa[i] = (fa[i] * fb[i]) % mod;
-        NTT(fa, true, mod, root);
-        var result = new BigInteger[totalLen];
-        Array.Copy(fa, result, totalLen);
-        return result;
-    }
+        int n = data.Length;
 
-    private static void NTT(BigInteger[] a, bool invert, BigInteger mod, BigInteger root)
-    {
-        int n = a.Length;
-        for (int i = 1, j = 0; i < n; i++)
-        {
-            int bit = n >> 1;
-            for (; j >= bit; bit >>= 1) j -= bit;
-            j += bit;
-            if (i < j) (a[i], a[j]) = (a[j], a[i]);
-        }
+        BitReverse(data);
+
+        BigInteger omegaInv = ModInverse(omega, M);
+
         for (int len = 2; len <= n; len <<= 1)
         {
-            BigInteger wlen = PowMod(root, (mod - 1) / len, mod);
-            if (invert) wlen = PowMod(wlen, mod - 2, mod);
+            int half = len >> 1;
+            BigInteger wlen = invert
+                ? BigInteger.ModPow(omegaInv, n / len, M)
+                : BigInteger.ModPow(omega, n / len, M);
+
             for (int i = 0; i < n; i += len)
             {
                 BigInteger w = 1;
-                for (int j = 0; j < len / 2; j++)
+                for (int j = 0; j < half; j++)
                 {
-                    BigInteger u = a[i + j];
-                    BigInteger v = (a[i + j + len / 2] * w) % mod;
-                    a[i + j] = (u + v) % mod;
-                    a[i + j + len / 2] = (u - v + mod) % mod;
-                    w = (w * wlen) % mod;
+                    BigInteger u = data[i + j];
+                    BigInteger v = data[i + j + half] * w % M;
+                    data[i + j] = (u + v) % M;
+                    data[i + j + half] = (u - v + M) % M;
+                    w = w * wlen % M;
                 }
             }
         }
-        if (invert)
+    }
+
+    private static void BitReverse(BigInteger[] data)
+    {
+        int n = data.Length;
+        int j = 0;
+        for (int i = 0; i < n; i++)
         {
-            BigInteger invN = PowMod(n, mod - 2, mod);
-            for (int i = 0; i < n; i++)
-                a[i] = (a[i] * invN) % mod;
+            if (i < j)
+                (data[i], data[j]) = (data[j], data[i]);
+            int bit = n >> 1;
+            while (j >= bit && bit > 0)
+            {
+                j -= bit;
+                bit >>= 1;
+            }
+            j += bit;
         }
     }
 
-    private static BigInteger PowMod(BigInteger a, BigInteger b, BigInteger mod)
+    private static BigInteger BigIntegerFromDigits(uint[] digits)
     {
-        BigInteger res = 1;
-        while (b > 0)
-        {
-            if ((b & 1) == 1) res = (res * a) % mod;
-            a = (a * a) % mod;
-            b >>= 1;
-        }
-        return res;
+        byte[] bytes = new byte[digits.Length * 4 + 1];
+        Buffer.BlockCopy(digits, 0, bytes, 0, digits.Length * 4);
+        return new BigInteger(bytes);
     }
 
-    private static BigInteger[] ChineseRemainderBigInteger(BigInteger[] r1, BigInteger[] r2, BigInteger[] r3)
+    private static uint[] BigIntegerToUIntArray(BigInteger value)
     {
-        int len = Math.Max(r1.Length, Math.Max(r2.Length, r3.Length));
-        var result = new BigInteger[len];
-        BigInteger mod12 = Mods[0] * Mods[1];
-        for (int i = 0; i < len; i++)
-        {
-            BigInteger v1 = i < r1.Length ? r1[i] : 0;
-            BigInteger v2 = i < r2.Length ? r2[i] : 0;
-            BigInteger v3 = i < r3.Length ? r3[i] : 0;
-            BigInteger t = (v2 - v1) * ModInverseBigInteger(Mods[0], Mods[1]) % Mods[1];
-            if (t < 0) t += Mods[1];
-            BigInteger x12 = v1 + Mods[0] * t;
-            t = (v3 - x12 % Mods[2]) * ModInverseBigInteger(mod12 % Mods[2], Mods[2]) % Mods[2];
-            if (t < 0) t += Mods[2];
-            result[i] = x12 + mod12 * t;
-        }
+        if (value.IsZero)
+            return new uint[] { 0 };
+
+        byte[] bytes = value.ToByteArray();
+        if (bytes[bytes.Length - 1] == 0)
+            Array.Resize(ref bytes, bytes.Length - 1);
+
+        int uintLength = (bytes.Length + 3) / 4;
+        uint[] result = new uint[uintLength];
+        Buffer.BlockCopy(bytes, 0, result, 0, bytes.Length);
         return result;
     }
 
-    private static BigInteger ModInverseBigInteger(BigInteger a, BigInteger mod)
+    private static int GetBitLength(BigInteger x)
     {
-        BigInteger t = 0, newT = 1;
-        BigInteger r = mod, newR = a;
-        while (newR != 0)
+        if (x.IsZero) return 0;
+        byte[] bytes = x.ToByteArray();
+        int highByte = bytes[bytes.Length - 1];
+        int bits = (bytes.Length - 1) * 8;
+        while (highByte != 0)
         {
-            var quotient = r / newR;
-            (t, newT) = (newT, t - quotient * newT);
-            (r, newR) = (newR, r - quotient * newR);
+            bits++;
+            highByte >>= 1;
         }
-        if (r > 1) throw new InvalidOperationException("Not invertible");
-        if (t < 0) t += mod;
-        return t;
+        return bits;
     }
 
-    private static bool IsZero(BetterBigInteger num)
+    private static BigInteger ModInverse(BigInteger a, BigInteger mod)
     {
-        var digits = num.GetDigits();
-        return digits.Length == 1 && digits[0] == 0;
+        BigInteger old_r = a, r = mod;
+        BigInteger old_s = 1, s = 0;
+        while (r != 0)
+        {
+            BigInteger q = old_r / r;
+            BigInteger temp = r;
+            r = old_r - q * r;
+            old_r = temp;
+            temp = s;
+            s = old_s - q * s;
+            old_s = temp;
+        }
+        if (old_r != 1)
+            throw new ArithmeticException("Element is not invertible in the ring.");
+        if (old_s < 0)
+            old_s += mod;
+        return old_s;
     }
 }

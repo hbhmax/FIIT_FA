@@ -772,7 +772,7 @@ public sealed class BetterBigInteger : IBigInteger
        return q;
    }
 
-   private bool IsZero() => GetDigits().Length == 1 && GetDigits()[0] == 0;
+   public bool IsZero() => GetDigits().Length == 1 && GetDigits()[0] == 0;
 
    public static bool operator ==(BetterBigInteger a, BetterBigInteger b) => Equals(a, b);
    public static bool operator !=(BetterBigInteger a, BetterBigInteger b) => !Equals(a, b);
